@@ -73,6 +73,7 @@ button:disabled{opacity:.55;cursor:not-allowed}
 .hidden{display:none!important}
 .check{display:flex;align-items:center;gap:8px;margin-top:10px;font-weight:400}
 .check input{width:20px;min-height:20px}
+.mode-row{display:flex;gap:12px;flex-wrap:wrap}.mode-row label{display:flex;align-items:center;gap:7px;background:#f2f6fa;border-radius:10px;padding:10px 14px;font-weight:500}.mode-row input{width:18px;min-height:18px}
 .back{background:#eef1f3;color:#303438;margin-bottom:12px}
 @media(max-width:420px){.summary{grid-template-columns:1fr 1fr 1fr}.app{padding-left:10px;padding-right:10px}.date-field{width:100%;max-width:none}.date-field input[type="date"]{width:100%;max-width:none;min-width:0}}
 </style>
@@ -130,13 +131,15 @@ button:disabled{opacity:.55;cursor:not-allowed}
       <h2>回報成品</h2>
       <form id="reportForm">
         <div class="form-group date-field"><label>日期</label><input id="reportDate" type="date" required></div>
-        <div class="form-group"><label>總重 kg</label><input id="totalWeight" type="number" min="0" step="0.001" inputmode="decimal"></div>
+        <div id="reportModeGroup" class="form-group hidden"><label>回報方式（自購料）</label><div class="mode-row"><label><input type="radio" name="reportMode" value="重量" checked> 重量回報</label><label><input type="radio" name="reportMode" value="數量"> 數量回報</label></div></div>
+        <div id="weightFields"><div class="form-group"><label>總重 kg</label><input id="totalWeight" type="number" min="0" step="0.001" inputmode="decimal"></div>
         <div class="form-group"><label>單顆重量 g</label><input id="unitWeight" type="number" min="0" step="0.0001" inputmode="decimal"></div>
-        <div class="form-group"><label>換算數量 pcs</label><input id="qty" type="text" readonly placeholder="系統自動計算"></div>
+        <div class="form-group"><label>換算數量 pcs</label><input id="qty" type="text" readonly placeholder="系統自動計算"></div></div>
+        <div id="quantityFields" class="hidden"><div class="form-group"><label>完成數量 pcs</label><input id="directQty" type="number" min="1" step="1" inputmode="numeric" placeholder="請輸入本次完成數量"></div><div class="sub" style="margin-bottom:12px">數量回報不必輸入重量，歷史紀錄仍會顯示完成數量。</div></div>
         <div class="form-group"><label>備註</label><textarea id="remark" placeholder="沒有可留白"></textarea></div>
         <button id="submitBtn" class="submit" type="submit">送出成品回報</button>
         <button id="completeBtn" class="complete" type="button">✅ 送出本次回報＋批次完成</button>
-        <div class="sub" style="margin-top:8px">若本次已回報完畢，只需將兩個重量欄位留白，即可直接完成批次。</div>
+        <div class="sub" style="margin-top:8px">若只需完成批次，請將本次回報欄位留白後按「批次完成」。</div>
       </form>
     </div>
 
@@ -152,7 +155,7 @@ const LIFF_ID='2012135340-8V0TYloV';
 const GAS_WEB_APP_URL='https://script.google.com/macros/s/AKfycbyEW58zAoPRK3G2AdD5GzVL0ejWrKuLeeHDwrHrJPdNGiPV344y9P5uahDOzWTXxrJJ/exec';
 
 let currentUserId='', currentEmployeeName='', currentBatchId='', currentRequestId=null, submitting=false;
-let currentBatchReadOnly=false;
+let currentBatchReadOnly=false, currentMaterialSource='';
 let searchRequestSeq=0;
 let batchPreviewCache={};
 
@@ -407,6 +410,8 @@ function renderContext(r){
      <div class="sum"><b>${Number(s.totalQuantity||0).toLocaleString('zh-TW')}</b><span>累計 pcs</span></div>`;
   const completed=!!r.batchCompleted;
   currentBatchReadOnly=completed||isFinishedBatchStatus(b.status);
+  currentMaterialSource=String(b.materialSource||'').trim();
+  updateReportModeUI();
   document.getElementById('reportCard').classList.toggle('hidden',currentBatchReadOnly);
   renderHistory(r.reports||[]);
   if(currentBatchReadOnly) showMsg('此批次為唯讀狀態，可查看歷史紀錄，不能新增成品回報。','info'); else clearMsg();
@@ -417,13 +422,23 @@ function renderHistory(items){
   if(!items.length){box.innerHTML='<div class="sub">尚無回報紀錄</div>';return;}
   box.innerHTML=items.slice().reverse().map(x=>`<div class="history">
     <strong>第 ${Number(x.reportNo||0)} 次</strong>・${esc(x.date||'-')}<br>
-    總重：${fmt(x.totalWeight,3)} kg・單顆：${fmt(x.unitWeight,4)} g<br>
+    ${Number(x.totalWeight||0)>0?'總重：'+fmt(x.totalWeight,3)+' kg'+(Number(x.unitWeight||0)>0?'・單顆：'+fmt(x.unitWeight,4)+' g':'')+'<br>':''}
     換算：${Number(x.quantity||0).toLocaleString('zh-TW')} pcs
     ${x.remark?'<br>備註：'+esc(x.remark):''}
     <br><span class="sub">${esc(x.reporter||'')}${x.reportTime?'・'+esc(x.reportTime):''}</span>
   </div>`).join('');
 }
 
+document.querySelectorAll('input[name="reportMode"]').forEach(el=>el.addEventListener('change',updateReportModeUI));
+function getReportMode(){return currentMaterialSource==='自購料' && document.querySelector('input[name="reportMode"]:checked')?.value==='數量'?'數量':'重量';}
+function updateReportModeUI(){
+  const selfPurchase=currentMaterialSource==='自購料';
+  document.getElementById('reportModeGroup').classList.toggle('hidden',!selfPurchase);
+  if(!selfPurchase) document.querySelector('input[name="reportMode"][value="重量"]').checked=true;
+  const quantity=getReportMode()==='數量';
+  document.getElementById('weightFields').classList.toggle('hidden',quantity);
+  document.getElementById('quantityFields').classList.toggle('hidden',!quantity);
+}
 ['totalWeight','unitWeight'].forEach(id=>document.getElementById(id).addEventListener('input',calcQty));
 function calcQty(){
   const w=Number(document.getElementById('totalWeight').value);
@@ -444,23 +459,30 @@ async function submitReport(e,completeBatch){
   const reportDate=document.getElementById('reportDate').value;
   const weightRaw=document.getElementById('totalWeight').value.trim();
   const unitRaw=document.getElementById('unitWeight').value.trim();
-  const completionOnly=completeBatch && weightRaw==='' && unitRaw==='';
+  const reportMode=getReportMode();
+  const directRaw=document.getElementById('directQty').value.trim();
+  const completionOnly=completeBatch && (reportMode==='數量' ? directRaw==='' : weightRaw==='' && unitRaw==='');
   const totalWeight=weightRaw===''?NaN:Number(weightRaw);
   const unitWeight=unitRaw===''?NaN:Number(unitRaw);
+  const quantity=directRaw===''?NaN:Number(directRaw);
   const remark=document.getElementById('remark').value.trim();
   if(!reportDate){showMsg('請選擇日期','error');return;}
-  if(!completionOnly && !(totalWeight>0)){showMsg('請輸入正確的總重 kg；若僅完成批次，請將兩個重量欄位都留白','error');return;}
-  if(!completionOnly && !(unitWeight>0)){showMsg('請輸入本次實際成品單顆重量 g；若僅完成批次，請將兩個重量欄位都留白','error');return;}
-  if(!currentRequestId) currentRequestId=crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(36).slice(2);
+  if(!completionOnly && reportMode==='重量' && !(totalWeight>0)){showMsg('請輸入正確的總重 kg','error');return;}
+  if(!completionOnly && reportMode==='重量' && !(unitWeight>0)){showMsg('請輸入正確的單顆重量 g','error');return;}
+  if(!completionOnly && reportMode==='數量' && !(Number.isSafeInteger(quantity)&&quantity>0)){showMsg('完成數量必須為正整數','error');return;}
+  if(!currentRequestId) currentRequestId=(crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(36).slice(2));
   const s=document.getElementById('submitBtn'), c=document.getElementById('completeBtn');
   try{
     submitting=true;s.disabled=true;c.disabled=true;
-    const r=await apiPost({action:completionOnly?'completeFinishedBatchOnly':'createFinishedReport',userId:currentUserId,batchId:currentBatchId,reportDate,totalWeight:completionOnly?undefined:totalWeight,unitWeight:completionOnly?undefined:unitWeight,remark,completeBatch,requestId:currentRequestId});
+    const payload={action:completionOnly?'completeFinishedBatchOnly':'createFinishedReport',userId:currentUserId,batchId:currentBatchId,reportDate,reportMode,remark,completeBatch,requestId:currentRequestId};
+    if(!completionOnly){if(reportMode==='數量'){payload.quantity=quantity;}else{payload.totalWeight=totalWeight;payload.unitWeight=unitWeight;}}
+    const r=await apiPost(payload);
     if(!r.success) throw new Error(r.message||'成品回報失敗');
     currentRequestId=null;
     document.getElementById('totalWeight').value='';
     document.getElementById('unitWeight').value='';
     document.getElementById('qty').value='';
+    document.getElementById('directQty').value='';
     document.getElementById('remark').value='';
     showMsg(r.message||(completionOnly?'批次完成成功，未新增成品回報':'成品回報成功'),'success');
     await loadContext();
