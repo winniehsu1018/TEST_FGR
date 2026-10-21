@@ -135,7 +135,7 @@ button:disabled{opacity:.55;cursor:not-allowed}
         <div id="weightFields"><div class="form-group"><label>總重 kg</label><input id="totalWeight" type="number" min="0" step="0.001" inputmode="decimal"></div>
         <div class="form-group"><label>單顆重量 g</label><input id="unitWeight" type="number" min="0" step="0.0001" inputmode="decimal"></div>
         <div class="form-group"><label>換算數量 pcs</label><input id="qty" type="text" readonly placeholder="系統自動計算"></div></div>
-        <div id="quantityFields" class="hidden"><div class="form-group"><label>完成數量 pcs</label><input id="directQty" type="number" min="1" step="1" inputmode="numeric" placeholder="請輸入本次完成數量"></div><div class="sub" style="margin-bottom:12px">數量回報不必輸入重量，歷史紀錄仍會顯示完成數量。</div></div>
+        <div id="quantityFields" class="hidden"><div class="form-group"><label>完成數量 pcs</label><input id="directQty" type="number" min="1" step="1" inputmode="numeric" placeholder="請輸入本次完成數量"></div><div class="sub" style="margin-bottom:12px">數量回報以輸入的 pcs 為準；總重與單顆重量可選填。兩項都有填寫時，若換算差異超過 5%，系統會提醒但仍可送出。</div></div>
         <div class="form-group"><label>備註</label><textarea id="remark" placeholder="沒有可留白"></textarea></div>
         <button id="submitBtn" class="submit" type="submit">送出成品回報</button>
         <button id="completeBtn" class="complete" type="button">✅ 送出本次回報＋批次完成</button>
@@ -436,7 +436,8 @@ function updateReportModeUI(){
   document.getElementById('reportModeGroup').classList.toggle('hidden',!selfPurchase);
   if(!selfPurchase) document.querySelector('input[name="reportMode"][value="重量"]').checked=true;
   const quantity=getReportMode()==='數量';
-  document.getElementById('weightFields').classList.toggle('hidden',quantity);
+  document.getElementById('weightFields').classList.remove('hidden');
+  document.getElementById('qty').closest('.form-group').classList.toggle('hidden',quantity);
   document.getElementById('quantityFields').classList.toggle('hidden',!quantity);
 }
 ['totalWeight','unitWeight'].forEach(id=>document.getElementById(id).addEventListener('input',calcQty));
@@ -461,7 +462,7 @@ async function submitReport(e,completeBatch){
   const unitRaw=document.getElementById('unitWeight').value.trim();
   const reportMode=getReportMode();
   const directRaw=document.getElementById('directQty').value.trim();
-  const completionOnly=completeBatch && (reportMode==='數量' ? directRaw==='' : weightRaw==='' && unitRaw==='');
+  const completionOnly=completeBatch && directRaw==='' && weightRaw==='' && unitRaw==='';
   const totalWeight=weightRaw===''?NaN:Number(weightRaw);
   const unitWeight=unitRaw===''?NaN:Number(unitRaw);
   const quantity=directRaw===''?NaN:Number(directRaw);
@@ -470,12 +471,18 @@ async function submitReport(e,completeBatch){
   if(!completionOnly && reportMode==='重量' && !(totalWeight>0)){showMsg('請輸入正確的總重 kg','error');return;}
   if(!completionOnly && reportMode==='重量' && !(unitWeight>0)){showMsg('請輸入正確的單顆重量 g','error');return;}
   if(!completionOnly && reportMode==='數量' && !(Number.isSafeInteger(quantity)&&quantity>0)){showMsg('完成數量必須為正整數','error');return;}
+  if(reportMode==='數量' && !completionOnly){
+    if((weightRaw!=='' && !(totalWeight>0)) || (unitRaw!=='' && !(unitWeight>0))){showMsg('選填重量若有輸入，必須大於 0','error');return;}
+    if(weightRaw!=='' && unitRaw!=='' && Math.abs(Math.round(totalWeight*1000/unitWeight)-quantity)/quantity>0.05){
+      if(!confirm('重量換算約 '+Math.round(totalWeight*1000/unitWeight).toLocaleString('zh-TW')+' pcs，與填寫的 '+quantity.toLocaleString('zh-TW')+' pcs 差異超過 5%。仍要以填寫數量送出嗎？'))return;
+    }
+  }
   if(!currentRequestId) currentRequestId=(crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(36).slice(2));
   const s=document.getElementById('submitBtn'), c=document.getElementById('completeBtn');
   try{
     submitting=true;s.disabled=true;c.disabled=true;
     const payload={action:completionOnly?'completeFinishedBatchOnly':'createFinishedReport',userId:currentUserId,batchId:currentBatchId,reportDate,reportMode,remark,completeBatch,requestId:currentRequestId};
-    if(!completionOnly){if(reportMode==='數量'){payload.quantity=quantity;}else{payload.totalWeight=totalWeight;payload.unitWeight=unitWeight;}}
+    if(!completionOnly){if(reportMode==='數量'){payload.quantity=quantity;if(weightRaw!=='')payload.totalWeight=totalWeight;if(unitRaw!=='')payload.unitWeight=unitWeight;}else{payload.totalWeight=totalWeight;payload.unitWeight=unitWeight;}}
     const r=await apiPost(payload);
     if(!r.success) throw new Error(r.message||'成品回報失敗');
     currentRequestId=null;
