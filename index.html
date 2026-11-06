@@ -156,6 +156,7 @@ const GAS_WEB_APP_URL='https://script.google.com/macros/s/AKfycbyEW58zAoPRK3G2Ad
 
 let currentUserId='', currentEmployeeName='', currentBatchId='', currentRequestId=null, submitting=false;
 let currentBatchReadOnly=false, currentMaterialSource='';
+let hasValidFinishedReport=false;
 let searchRequestSeq=0;
 let batchPreviewCache={};
 
@@ -409,6 +410,9 @@ async function loadContext(){
 
 function renderContext(r){
   const b=r.batch||{}, s=r.summary||{};
+  hasValidFinishedReport = (r.reports || []).some(report =>
+    [report.quantity, report.totalWeight].some(value => Number.isFinite(Number(value)) && Number(value) > 0)
+  );
   const lotLabel=String(b.supplier||'').trim()==='緯丞'?'緯丞批號':'廠商批號';
   document.getElementById('batchInfo').innerHTML=
     `<div><strong>件號：</strong>${esc(b.partNo||'-')}</div>
@@ -503,6 +507,10 @@ async function submitReport(e,completeBatch){
   const reportMode=getReportMode();
   const directRaw=document.getElementById('directQty').value.trim();
   const completionOnly=completeBatch && directRaw==='' && weightRaw==='' && unitRaw==='';
+  if (completionOnly && !hasValidFinishedReport) {
+    showMsg('此批次尚無成品回報紀錄。如整批原料未加工退回，請使用整批退料入口。','error');
+    return;
+  }
   const totalWeight=weightRaw===''?NaN:Number(weightRaw);
   const unitWeight=unitRaw===''?NaN:Number(unitRaw);
   const quantity=directRaw===''?NaN:Number(directRaw);
