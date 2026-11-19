@@ -95,7 +95,7 @@ button:disabled{opacity:.55;cursor:not-allowed}
     </div>
     <label class="check">
       <input id="includeCompleted" type="checkbox">
-      顯示已完成批次
+      包含已完成及已作廢批次
     </label>
     <div id="searchResultSection" class="result-zone hidden" aria-live="polite">
       <div class="zone-heading">
@@ -318,7 +318,7 @@ async function searchBatches(){
 }
 
 function isFinishedBatchStatus(status){
-  return ['待結算','待出貨','已出完'].includes(String(status||'').trim());
+  return ['待結算','待出貨','已出完','已作廢'].includes(String(status||'').trim());
 }
 
 function finishedReportButtonHtml(b){
